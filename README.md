@@ -6,7 +6,7 @@ CSC 419 — Advances in Web, Mobile and Blockchain Development, Pan-Atlantic Uni
 - Queen-Esther Emeanua — 23120112016
 - Tobenna Dike — 23120112014
 
-**Live app:** TBD
+**Live app:** https://greedy-pig-reimagined-lime.vercel.app
 **Base game this builds on:** https://github.com/Hemephelus/greed_pig
 
 ## The three improvements
