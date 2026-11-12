@@ -9,6 +9,10 @@ import Home from "./routes/Home";
 import HowToPlay from "./routes/HowToPlay";
 import LiveGame from "./routes/play_friends_live/game/Game";
 import LiveGamePage from "./routes/play_friends_live/LivePage";
+import Account from "./routes/account/Account";
+import Profile from "./routes/profile/Profile";
+import TrackedSetup from "./routes/tracked_game/setup/Setup";
+import TrackedGame from "./routes/tracked_game/game/Game";
 
 const router = createBrowserRouter([
   {
@@ -38,7 +42,22 @@ const router = createBrowserRouter([
         path: "/",
         element: <Home />,
       },
-    
+      {
+        path: "account/",
+        element: <Account />,
+      },
+      {
+        path: "profile/",
+        element: <Profile />,
+      },
+      {
+        path: "tracked-game/setup/",
+        element: <TrackedSetup />,
+      },
+      {
+        path: "tracked-game/play/",
+        element: <TrackedGame />,
+      },
     ],
   },
 ]);
