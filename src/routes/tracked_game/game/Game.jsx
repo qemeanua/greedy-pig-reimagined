@@ -3,6 +3,9 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import Navbar from "src/components/Navbar";
 import { rollDice, bankScore } from "src/lib/api";
 import { useGreedyPigContext } from "src/context/useGreedyPigContext";
+import { useKeyboardControls } from "src/hooks/useKeyboardControls";
+import HelpPanel from "./components/HelpPanel";
+import BoosterBar from "./components/BoosterBar";
 
 export default function TrackedGame() {
   const location = useLocation();
@@ -18,12 +21,14 @@ export default function TrackedGame() {
   const [gameOver, setGameOver] = useState(false);
   const [winnerIndex, setWinnerIndex] = useState(null);
   const [error, setError] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  console.log("TRACKED GAME IS RUNNING");
 
-  // TODO(teammate): booster selection state goes here, e.g.
-  // const [useBoosters, setUseBoosters] = useState({ scoreShield: false, luckyReroll: false, doublePoints: false });
-  // Render a <BoosterBar player={players[currentTurnIndex]} value={useBoosters} onChange={setUseBoosters} />
-  // below the Navbar, and pass `useBoosters` into rollDice(...) below instead of `{}`.
-  const useBoosters = {};
+  const [useBoosters, setUseBoosters] = useState({
+    scoreShield: false,
+    luckyReroll: false,
+    doublePoints: false,
+  });
 
   if (!sessionId) return <Navigate to="/tracked-game/setup" replace />;
 
@@ -37,9 +42,15 @@ export default function TrackedGame() {
     setError("");
     setRolling(true);
     try {
+
       const result = await rollDice({ sessionId, useBoosters });
-      applyCurrentPlayerUpdate({ turn_score: result.newTurnScore, total_score: result.newTotalScore });
-      setLastRoll(result.rolls);
+      applyCurrentPlayerUpdate({
+        turn_score: result.newTurnScore,
+        total_score: result.newTotalScore,
+        ...(result.remainingBoosters && {
+          active_boosters: result.remainingBoosters,
+        }),
+      });
       setMessage(
         result.bust
           ? result.scoreLost
@@ -47,6 +58,11 @@ export default function TrackedGame() {
             : "Rolled a 1 — Score Shield saved your points!"
           : `Rolled a ${result.rolls[result.rolls.length - 1]}.`
       );
+      setUseBoosters({
+        scoreShield: false,
+        luckyReroll: false,
+        doublePoints: false,
+      });
 
       if (result.gameOver) {
         setGameOver(true);
@@ -84,10 +100,12 @@ export default function TrackedGame() {
     }
   }
 
-  // TODO(teammate): keyboard controls go here, e.g. a useKeyboardControls hook that calls
-  // handleRoll() on Space/Enter and handleBank() on "B" when !rolling && !gameOver.
-  // TODO(teammate): an in-game help button/modal goes in the Navbar area, reachable here
-  // without leaving the game (unlike the pre-game /live-game/how-to-play route).
+  useKeyboardControls({
+    onRoll: handleRoll,
+    onBank: handleBank,
+    onToggleHelp: () => setHelpOpen((o) => !o),
+    enabled: !rolling && !gameOver,
+  });
 
   if (gameOver) {
     const winner = players.find((p) => p.player_index === winnerIndex);
@@ -107,6 +125,19 @@ export default function TrackedGame() {
   return (
     <div className="min-h-screen p-[5%] text-white space-y-6">
       <Navbar />
+      <div className="flex justify-end">
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="text-sm underline text-[#ffffffa0]"
+        >
+          Help (H)
+        </button>
+      </div>
+
+      <HelpPanel
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+      />
 
       <table className="w-full text-left">
         <thead>
@@ -130,6 +161,11 @@ export default function TrackedGame() {
       <p className="text-sm text-[#ffffffa0]">Max score: {maxScore}</p>
 
       <div className="flex flex-col items-center gap-4">
+        <BoosterBar
+          player={current}
+          value={useBoosters}
+          onChange={setUseBoosters}
+        />
         {lastRoll && <p className="text-2xl">🎲 {lastRoll.join(" → ")}</p>}
         {message && <p>{message}</p>}
         {error && <p className="text-[#ff6b6b] text-sm">{error}</p>}
@@ -150,6 +186,9 @@ export default function TrackedGame() {
             Bank
           </button>
         </div>
+        <p className="text-xs text-[#ffffffa0] text-center">
+          Space to roll · B to bank · H for help
+        </p>
       </div>
     </div>
   );
