@@ -1,77 +1,143 @@
+
 import { corsHeaders } from "../_shared/cors.ts";
 import { serviceClient, getCallerProfileId } from "../_shared/client.ts";
 
-// Creates a new game session. The signed-in caller is always player_index 0 (their
-// progression/XP is tracked); any other local players are guests (name only, no account).
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+// Creates a game session.
+// The signed-in account can occupy any player position.
+// All other players are local guests.
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
   const profileId = await getCallerProfileId(req);
+
   if (!profileId) {
-    return new Response(JSON.stringify({ error: "Sign in to start a game." }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Sign in to start a game." }, 401);
   }
 
-  const { playerNames, maxScore } = await req.json();
+  let body: {
+    playerNames?: unknown;
+    maxScore?: unknown;
+    accountPlayerIndex?: unknown;
+  };
 
-  if (!Array.isArray(playerNames) || playerNames.length < 1 || playerNames.length > 8) {
-    return new Response(JSON.stringify({ error: "Need between 1 and 8 players." }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid request body." }, 400);
   }
-  if (!Number.isInteger(maxScore) || maxScore < 25 || maxScore > 1000) {
-    return new Response(JSON.stringify({ error: "maxScore must be between 25 and 1000." }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+
+  const { playerNames, maxScore, accountPlayerIndex = 0 } = body;
+
+  // Progression Mode requires at least two players.
+  if (
+    !Array.isArray(playerNames) ||
+    playerNames.length < 2 ||
+    playerNames.length > 8
+  ) {
+    return json(
+      { error: "A game requires between 2 and 8 players." },
+      400,
+    );
   }
+
+  if (
+    !Number.isInteger(maxScore) ||
+    Number(maxScore) < 25 ||
+    Number(maxScore) > 1000
+  ) {
+    return json(
+      { error: "Max score must be between 25 and 1000." },
+      400,
+    );
+  }
+
+  if (
+    !Number.isInteger(accountPlayerIndex) ||
+    Number(accountPlayerIndex) < 0 ||
+    Number(accountPlayerIndex) >= playerNames.length
+  ) {
+    return json(
+      { error: "Invalid account player position." },
+      400,
+    );
+  }
+
+  const cleanedNames = playerNames.map((name, index) => {
+    const cleanedName =
+      typeof name === "string" ? name.trim().slice(0, 40) : "";
+
+    return cleanedName || `Player ${index + 1}`;
+  });
 
   const db = serviceClient();
 
   const { data: session, error: sessionError } = await db
     .from("game_sessions")
-    .insert({ owner_profile_id: profileId, max_score: maxScore })
+    .insert({
+      owner_profile_id: profileId,
+      max_score: Number(maxScore),
+    })
     .select()
     .single();
+
   if (sessionError) {
-    return new Response(JSON.stringify({ error: sessionError.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: sessionError.message }, 500);
   }
 
-  const { data: ownedBoosters } = await db
+  const { data: ownedBoosters, error: boosterError } = await db
     .from("player_boosters")
     .select("booster_key, quantity")
     .eq("profile_id", profileId);
 
+  if (boosterError) {
+    return json({ error: boosterError.message }, 500);
+  }
+
   const boosterInventory = Object.fromEntries(
-    (ownedBoosters ?? []).map((b) => [b.booster_key, b.quantity])
+    (ownedBoosters ?? []).map((booster) => [
+      booster.booster_key,
+      booster.quantity,
+    ]),
   );
 
-  const players = playerNames.map((name: string, index: number) => ({
-    session_id: session.id,
-    profile_id: index === 0 ? profileId : null,
-    display_name: String(name).slice(0, 40) || `Player ${index + 1}`,
-    player_index: index,
-    active_boosters: index === 0 ? boosterInventory : {},
-  }));
+  const players = cleanedNames.map((name, index) => {
+    const isAccountPlayer = index === Number(accountPlayerIndex);
+
+    return {
+      session_id: session.id,
+      profile_id: isAccountPlayer ? profileId : null,
+      display_name: name,
+      player_index: index,
+      active_boosters: isAccountPlayer ? boosterInventory : {},
+    };
+  });
 
   const { data: sessionPlayers, error: playersError } = await db
     .from("game_session_players")
     .insert(players)
     .select();
+
   if (playersError) {
-    return new Response(JSON.stringify({ error: playersError.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Avoid leaving an empty session if player creation fails.
+    await db.from("game_sessions").delete().eq("id", session.id);
+
+    return json({ error: playersError.message }, 500);
   }
 
-  return new Response(JSON.stringify({ session, players: sessionPlayers }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  return json({
+    session,
+    players: sessionPlayers,
   });
 });
