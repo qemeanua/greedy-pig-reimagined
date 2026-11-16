@@ -7,47 +7,102 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-// Locks in the current player's turn score. Score math happens here, not in the client,
-// so a player can't bank a total they didn't actually earn from server-validated rolls.
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return json({ error: "Method not allowed." }, 405);
+  }
 
   const profileId = await getCallerProfileId(req);
-  if (!profileId) return json({ error: "Sign in required." }, 401);
 
-  const { sessionId } = await req.json();
-  if (!sessionId) return json({ error: "sessionId is required." }, 400);
+  if (!profileId) {
+    return json({ error: "Sign in required." }, 401);
+  }
+
+  let body: { sessionId?: string };
+
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid request body." }, 400);
+  }
+
+  const { sessionId } = body;
+
+  if (!sessionId) {
+    return json({ error: "sessionId is required." }, 400);
+  }
 
   const db = serviceClient();
 
-  const { data: session } = await db.from("game_sessions").select("*").eq("id", sessionId).single();
-  if (!session || session.owner_profile_id !== profileId) return json({ error: "Game not found." }, 404);
-  if (session.status !== "active") return json({ error: "Game has already finished." }, 400);
+  const { data: session } = await db
+    .from("game_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .single();
+
+  if (!session || session.owner_profile_id !== profileId) {
+    return json({ error: "Game not found." }, 404);
+  }
+
+  if (session.status !== "active") {
+    return json({ error: "Game has already finished." }, 400);
+  }
 
   const { data: players } = await db
     .from("game_session_players")
     .select("*")
     .eq("session_id", sessionId)
     .order("player_index");
-  const current = players?.find((p) => p.player_index === session.current_turn_index);
-  if (!current) return json({ error: "Current player not found." }, 404);
+
+  if (!players?.length) {
+    return json({ error: "Unable to load game players." }, 500);
+  }
+
+  const current = players.find(
+    (player) => player.player_index === session.current_turn_index
+  );
+
+  if (!current) {
+    return json({ error: "Current player not found." }, 404);
+  }
 
   const newTotalScore = current.total_score + current.turn_score;
-  const nextTurnIndex = (session.current_turn_index + 1) % players!.length;
+  const nextTurnIndex =
+    (session.current_turn_index + 1) % players.length;
 
-  await db
+  const { error: updateError } = await db
     .from("game_session_players")
-    .update({ total_score: newTotalScore, turn_score: 0 })
+    .update({
+      total_score: newTotalScore,
+      turn_score: 0,
+      risk_bonus_awarded: false,
+    })
     .eq("id", current.id);
 
+  if (updateError) {
+    return json({ error: "Unable to bank the score." }, 500);
+  }
+
   const gameOver = newTotalScore >= session.max_score;
+
   if (gameOver) {
     await db
       .from("game_sessions")
-      .update({ status: "finished", winner_profile_id: current.profile_id, finished_at: new Date().toISOString() })
+      .update({
+        status: "finished",
+        winner_profile_id: current.profile_id,
+        finished_at: new Date().toISOString(),
+      })
       .eq("id", sessionId);
   } else {
-    await db.from("game_sessions").update({ current_turn_index: nextTurnIndex }).eq("id", sessionId);
+    await db
+      .from("game_sessions")
+      .update({ current_turn_index: nextTurnIndex })
+      .eq("id", sessionId);
   }
 
   return json({

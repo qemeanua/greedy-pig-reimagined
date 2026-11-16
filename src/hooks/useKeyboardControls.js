@@ -1,43 +1,47 @@
-
 import { useEffect } from "react";
 
 export function useKeyboardControls({
-    onRoll,
-    onBank,
-    onToggleHelp,
-    enabled,
+  onRoll,
+  onBank,
+  onToggleHelp,
+  enabled,
 }) {
-    useEffect(() => {
-        function handleKeyDown(e) {
-            console.log("Keyboard detected:", e.key, "Enabled:", enabled);
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (!enabled || event.repeat) return;
 
-            if (!enabled || e.repeat) return;
+      const target = event.target;
+      const tag = target?.tagName;
 
-            const tag = e.target?.tagName;
+      if (
+        ["INPUT", "TEXTAREA", "SELECT"].includes(tag) ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
 
-            if (
-                ["INPUT", "TEXTAREA", "SELECT"].includes(tag) ||
-                e.target?.isContentEditable
-            ) {
-                return;
-            }
+      if (event.code === "Space" || event.code === "Enter") {
+        event.preventDefault();
+        onRoll?.();
+        return;
+      }
 
-            if (e.code === "Space" || e.code === "Enter") {
-                e.preventDefault();
-                onRoll?.();
-            } else if (e.key.toLowerCase() === "b") {
-                onBank?.();
-            } else if (e.key.toLowerCase() === "h") {
-                onToggleHelp?.();
-            }
-        }
+      if (event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        onBank?.();
+        return;
+      }
 
-        window.addEventListener("keydown", handleKeyDown);
+      if (event.key.toLowerCase() === "h") {
+        event.preventDefault();
+        onToggleHelp?.();
+      }
+    }
 
-        console.log("Keyboard controls attached");
+    window.addEventListener("keydown", handleKeyDown);
 
-        return () => {
-            window.removeEventListener("keydown", handleKeyDown);
-        };
-    }, [enabled, onRoll, onBank, onToggleHelp]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [enabled, onRoll, onBank, onToggleHelp]);
 }
