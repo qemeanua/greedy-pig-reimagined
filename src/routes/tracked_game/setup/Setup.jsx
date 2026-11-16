@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {
@@ -60,10 +59,10 @@ export default function TrackedSetup() {
   if (!user) return <Navigate to="/account" replace />;
 
   function playSelectionSound() {
-    if (audio) {
-      audio.currentTime = 0;
-      audio.play().catch(() => {});
-    }
+    if (!audio) return;
+
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
   }
 
   function addPlayer() {
@@ -120,10 +119,7 @@ export default function TrackedSetup() {
           (player.pigIndex + direction + pigs.length) %
           pigs.length;
 
-        return {
-          ...player,
-          pigIndex: nextIndex,
-        };
+        return { ...player, pigIndex: nextIndex };
       })
     );
   }
@@ -138,22 +134,14 @@ export default function TrackedSetup() {
 
     const score = Number(maxScore);
 
-    if (players.length < MIN_PLAYERS) {
-      setError("You need at least 2 players to start.");
-      return;
-    }
-
-    if (players.length > MAX_PLAYERS) {
-      setError("You can have a maximum of 8 players.");
-      return;
-    }
-
     if (
       !Number.isInteger(score) ||
       score < 25 ||
       score > 1000
     ) {
-      setError("Maximum score must be a whole number between 25 and 1000.");
+      setError(
+        "Maximum score must be a whole number between 25 and 1000."
+      );
       return;
     }
 
@@ -166,10 +154,7 @@ export default function TrackedSetup() {
     }
 
     const playerNames = players.map((player, index) => {
-      if (index === accountPlayerIndex) {
-        return accountName;
-      }
-
+      if (index === accountPlayerIndex) return accountName;
       return player.name.trim() || `Player ${index + 1}`;
     });
 
@@ -182,15 +167,26 @@ export default function TrackedSetup() {
         accountPlayerIndex,
       });
 
+      // Attach the selected pig artwork to the returned server players.
+      const playersWithAvatars = sessionPlayers.map(
+        (sessionPlayer, index) => ({
+          ...sessionPlayer,
+          avatar: pigs[players[index].pigIndex],
+          pig_index: players[index].pigIndex,
+        })
+      );
+
       navigate("/tracked-game/play", {
         state: {
           sessionId: session.id,
           maxScore: session.max_score,
-          players: sessionPlayers,
+          players: playersWithAvatars,
         },
       });
     } catch (err) {
-      setError(err.message || "Unable to start the game. Please try again.");
+      setError(
+        err.message || "Unable to start the game. Please try again."
+      );
     } finally {
       setStarting(false);
     }
@@ -203,16 +199,16 @@ export default function TrackedSetup() {
       </nav>
 
       <div className="flex flex-col items-center gap-6 text-white mt-20 w-full max-w-4xl">
-
         <section className="text-center space-y-2">
           <h1 className="pri-font text-2xl lg:text-3xl">
             Tracked Play
           </h1>
 
           <p className="text-sm text-[#ffffffa0] max-w-xl">
-            Play with friends on the same device. Select the player
-            representing your account so your XP, coins and
-            progression are recorded correctly.
+            Play with friends on the same device. Choose your pigs
+            and select which player represents your account.
+            Your XP, coins and progression will be recorded for
+            that player.
           </p>
         </section>
 
@@ -320,6 +316,7 @@ export default function TrackedSetup() {
                       <p className="text-xs text-[#ffffff80]">
                         Signed-in player
                       </p>
+
                       <p className="font-bold break-words">
                         {accountName}
                       </p>
@@ -377,11 +374,11 @@ export default function TrackedSetup() {
 
         <div className="text-sm text-center text-[#ffffffa0] space-y-1">
           <p>
-            Only {accountName} receives account progression rewards.
+            Only the player representing your account receives
+            account progression rewards.
           </p>
-          <p>
-            All other players are local guests.
-          </p>
+
+          <p>All other players are local guests.</p>
         </div>
 
         {error && (
